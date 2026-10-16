@@ -2,6 +2,7 @@
 import type { Request, Response } from "express";
 import { addTelemetry, getVehicleTelemetry } from "../services/telemetry.service.js";
 import { processTelemetryInWorker } from "../services/telemetryWorker.service.js";
+import { publishTelemetryEvent } from "../services/telemetryPublisher.service.js";
 
 
 export const createTelemetry = async (
@@ -50,15 +51,28 @@ export const createTelemetry = async (
             return;
         }
 
+        
         // Step 2: Save the validated event to MongoDB.
         const result = await addTelemetry(workerResult.data);
 
-        // Step 3: Send exactly one success response.
+        // Step 3: Publish the saved event through Redis Pub/Sub.
+        // If Redis fails, keep the successful MongoDB save successful.
+        try {
+            await publishTelemetryEvent(workerResult.data);
+        } catch (publishError: unknown) {
+            console.error(
+                "Telemetry saved, but Redis publishing failed:",
+                publishError
+            );
+        }
+
+        // Step 4: Send exactly one success response.
         res.status(201).json({
             success: true,
             message: "Telemetry recorded successfully",
             data: result,
         });
+
     } catch (error: unknown) {
         if (res.headersSent) {
             console.error("Error after response was sent:", error);

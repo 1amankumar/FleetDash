@@ -6,6 +6,8 @@ import DashboardHeader from "./components/DashboardHeader";
 import FleetStats from "./components/FleetStats";
 import MapPanel from "./components/MapPanel";
 import VehicleList from "./components/VehicleList";
+import socket from "./services/socket";
+import { useTelemetry } from "./hooks/useTelemetry";
 
 import "./App.css";
 
@@ -26,11 +28,16 @@ function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const latestTelemetry = useTelemetry();
   
 const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
   null
 );
-
+useEffect(() => {
+  if (latestTelemetry) {
+    console.log("Dashboard received live telemetry:", latestTelemetry);
+  }
+}, [latestTelemetry]);
 
   const fetchVehicles = useCallback(async () => {
     setLoading(true);
@@ -66,6 +73,19 @@ const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
   useEffect(() => {
     void fetchVehicles();
   }, [fetchVehicles]);
+  useEffect(() => {
+  console.log("Socket object loaded:", socket);
+
+  socket.on("connect", () => {
+    console.log("Socket connected:", socket.id);
+  });
+
+  socket.on("connect_error", (error) => {
+    console.error("Socket error:", error.message);
+  });
+
+  socket.connect();
+}, []);
 
   return (
     <main className="dashboard">

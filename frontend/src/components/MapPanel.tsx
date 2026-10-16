@@ -1,371 +1,545 @@
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Popup,
-  useMap,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
+import type { MutableRefObject } from "react";
+import {
+    MapContainer,
+    TileLayer,
+    Marker,
+    Popup,
+    useMap,
 } from "react-leaflet";
 import { Layers, Maximize2 } from "lucide-react";
 import L from "leaflet";
 import type { Vehicle as AppVehicle } from "../App";
+import { useTelemetry } from "../hooks/useTelemetry";
 
 type Vehicle = Pick<
-  AppVehicle,
-  "vehicleId" | "registrationNumber" | "vehicleType" | "status"
+    AppVehicle,
+    "vehicleId" | "registrationNumber" | "vehicleType" | "status"
 > & {
-  vehicleId: string;
+    vehicleId: string;
 };
 
 type TelemetryPoint = {
-  latitude: number;
-  longitude: number;
-  recordedAt: string;
-  speed: number;
+    latitude: number;
+    longitude: number;
+    recordedAt: string;
+    speed: number;
 };
 
 type VehicleLocation = {
-  vehicle: Vehicle;
-  telemetry: TelemetryPoint;
+    vehicle: Vehicle;
+    telemetry: TelemetryPoint;
 };
 
 type VehiclesResponse = {
-  success: boolean;
-  data: AppVehicle[];
+    success: boolean;
+    data: AppVehicle[];
 };
 
 type TelemetryResponse = {
-  success: boolean;
-  data: TelemetryPoint[];
+    success: boolean;
+    data: TelemetryPoint[];
 };
 
 type MapPanelProps = {
-  selectedVehicleId: string | null;
+    selectedVehicleId: string | null;
 };
 
 const vehicleIcon = new L.DivIcon({
-  className: "vehicle-map-marker",
-  html: '<div class="vehicle-marker-dot"></div>',
-  iconSize: [20, 20],
-  iconAnchor: [10, 10],
+    className: "vehicle-map-marker",
+    html: '<div class="vehicle-marker-dot"></div>',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
 });
 
+/**
+ * Visually separates vehicles whose latest coordinates are identical.
+ * The original telemetry coordinates are never modified.
+ */
+function getDisplayPosition(
+    locations: VehicleLocation[],
+    vehicleId: string
+): [number, number] {
+    const current = locations.find(
+        (item) => item.vehicle.vehicleId === vehicleId
+    );
+
+    if (!current) {
+        return [23.7957, 86.4304];
+    }
+
+    const { latitude, longitude } = current.telemetry;
+
+    const overlapping = locations.filter(
+        (item) =>
+            item.telemetry.latitude === latitude &&
+            item.telemetry.longitude === longitude
+    );
+
+    if (overlapping.length <= 1) {
+        return [latitude, longitude];
+    }
+
+    const index = overlapping.findIndex(
+        (item) => item.vehicle.vehicleId === vehicleId
+    );
+
+    const angle = (2 * Math.PI * index) / overlapping.length;
+    const radius = 0.00018;
+
+    return [
+        latitude + Math.sin(angle) * radius,
+        longitude + Math.cos(angle) * radius,
+    ];
+}
+
 function MapController({
-  locations,
-  selectedVehicleId,
-  markerRefs,
-  resetView,
+    locations,
+    selectedVehicleId,
+    markerRefs,
+    resetView,
 }: {
-  locations: VehicleLocation[];
-  selectedVehicleId: string | null;
-  markerRefs: React.MutableRefObject<
-    Record<string, L.Marker | null>
-  >;
-  resetView: number;
+    locations: VehicleLocation[];
+    selectedVehicleId: string | null;
+    markerRefs: MutableRefObject<Record<string, L.Marker | null>>;
+    resetView: number;
 }) {
-  const map = useMap();
+    const map = useMap();
 
-  useEffect(() => {
-    if (selectedVehicleId) {
-      const selected = locations.find(
-        ({ vehicle }) => vehicle.vehicleId === selectedVehicleId
-      );
+    useEffect(() => {
+        if (selectedVehicleId) {
+            const selected = locations.find(
+                ({ vehicle }) => vehicle.vehicleId === selectedVehicleId
+            );
 
-      if (!selected) return;
+            if (!selected) return;
 
-      const { latitude, longitude } = selected.telemetry;
+            const [latitude, longitude] = getDisplayPosition(
+                locations,
+                selectedVehicleId
+            );
 
-      map.flyTo([latitude, longitude], 14, { duration: 0.6 });
+            map.flyTo([latitude, longitude], 14, { duration: 0.6 });
 
-      const timer = window.setTimeout(() => {
-        markerRefs.current[selectedVehicleId]?.openPopup();
-      }, 650);
+            const timer = window.setTimeout(() => {
+                markerRefs.current[selectedVehicleId]?.openPopup();
+            }, 650);
 
-      return () => window.clearTimeout(timer);
-    }
+            return () => window.clearTimeout(timer);
+        }
 
-    if (locations.length === 1) {
-      const { latitude, longitude } = locations[0].telemetry;
-      map.setView([latitude, longitude], 13);
-    } else if (locations.length > 1) {
-      const points = locations.map(
-        ({ telemetry }) =>
-          [telemetry.latitude, telemetry.longitude] as [number, number]
-      );
+        if (locations.length === 1) {
+            const [latitude, longitude] = getDisplayPosition(
+                locations,
+                locations[0].vehicle.vehicleId
+            );
 
-      map.fitBounds(L.latLngBounds(points), {
-        padding: [40, 40],
-        maxZoom: 14,
-      });
-    }
-  }, [map, locations, selectedVehicleId, markerRefs]);
+            map.setView([latitude, longitude], 13);
+        } else if (locations.length > 1) {
+            const points = locations.map(({ vehicle }) =>
+                getDisplayPosition(locations, vehicle.vehicleId)
+            );
 
-  useEffect(() => {
-    if (resetView === 0 || selectedVehicleId) return;
+            const bounds = L.latLngBounds(points);
 
-    if (locations.length === 1) {
-      const { latitude, longitude } = locations[0].telemetry;
-      map.setView([latitude, longitude], 13);
-    } else if (locations.length > 1) {
-      const points = locations.map(
-        ({ telemetry }) =>
-          [telemetry.latitude, telemetry.longitude] as [number, number]
-      );
+            if (bounds.isValid()) {
+                map.fitBounds(bounds, {
+                    padding: [40, 40],
+                    maxZoom: 14,
+                });
+            }
+        }
+    }, [map, locations, selectedVehicleId, markerRefs]);
 
-      map.fitBounds(L.latLngBounds(points), { padding: [40, 40] });
-    }
-  }, [map, resetView, locations, selectedVehicleId]);
+    useEffect(() => {
+        if (resetView === 0 || selectedVehicleId) return;
 
-  return null;
+        if (locations.length === 1) {
+            const [latitude, longitude] = getDisplayPosition(
+                locations,
+                locations[0].vehicle.vehicleId
+            );
+
+            map.setView([latitude, longitude], 13);
+        } else if (locations.length > 1) {
+            const points = locations.map(({ vehicle }) =>
+                getDisplayPosition(locations, vehicle.vehicleId)
+            );
+
+            const bounds = L.latLngBounds(points);
+
+            if (bounds.isValid()) {
+                map.fitBounds(bounds, {
+                    padding: [40, 40],
+                    maxZoom: 14,
+                });
+            }
+        }
+    }, [map, resetView, locations, selectedVehicleId]);
+
+    return null;
 }
 
 function MapPanel({ selectedVehicleId }: MapPanelProps) {
-  const [locations, setLocations] = useState<VehicleLocation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [resetView, setResetView] = useState(0);
+    const [locations, setLocations] = useState<VehicleLocation[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [resetView, setResetView] = useState(0);
+    const latestTelemetry = useTelemetry();
+    const markerRefs = useRef<Record<string, L.Marker | null>>({});
 
-  const markerRefs = useRef<Record<string, L.Marker | null>>({});
+    const fetchFleetTelemetry = useCallback(
+        async (signal: AbortSignal) => {
+            try {
+                setError("");
 
-  const fetchFleetTelemetry = useCallback(
-    async (signal: AbortSignal) => {
-      try {
-        setError("");
+                const to = new Date();
 
-        const to = new Date();
-        const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+                // FIX: Include the last 48 hours, not just the last 24.
+                // This allows vehicles with older recent telemetry to appear.
+                const from = new Date(
+                    to.getTime() - 48 * 60 * 60 * 1000
+                );
 
-        const query = `from=${encodeURIComponent(
-          from.toISOString()
-        )}&to=${encodeURIComponent(to.toISOString())}`;
+                const query = `from=${encodeURIComponent(
+                    from.toISOString()
+                )}&to=${encodeURIComponent(to.toISOString())}`;
 
-        const vehiclesResponse = await fetch(
-          "http://localhost:8000/api/vehicles",
-          { signal }
+                const vehiclesResponse = await fetch(
+                    "http://localhost:8000/api/vehicles",
+                    { signal }
+                );
+
+                if (!vehiclesResponse.ok) {
+                    throw new Error(
+                        `Failed to load vehicles: ${vehiclesResponse.status}`
+                    );
+                }
+
+                const vehiclesResult: VehiclesResponse =
+                    await vehiclesResponse.json();
+
+                if (
+                    !vehiclesResult.success ||
+                    !Array.isArray(vehiclesResult.data)
+                ) {
+                    throw new Error("Invalid vehicles response");
+                }
+
+                const results = await Promise.all(
+                    vehiclesResult.data.map(async (vehicle) => {
+                        if (!vehicle.vehicleId) return null;
+
+                        try {
+                            const response = await fetch(
+                                `http://localhost:8000/api/telemetry/${encodeURIComponent(
+                                    vehicle.vehicleId
+                                )}?${query}`,
+                                { signal }
+                            );
+
+                            if (!response.ok) {
+                                console.error(
+                                    `Telemetry request failed for ${vehicle.vehicleId}:`,
+                                    response.status
+                                );
+                                return null;
+                            }
+
+                            const result: TelemetryResponse =
+                                await response.json();
+
+                            if (
+                                !result.success ||
+                                !Array.isArray(result.data)
+                            ) {
+                                console.error(
+                                    `Invalid telemetry response for ${vehicle.vehicleId}`
+                                );
+                                return null;
+                            }
+
+                            const validPoints = result.data.filter(
+                                (point) =>
+                                    Number.isFinite(point.latitude) &&
+                                    Number.isFinite(point.longitude) &&
+                                    point.latitude >= -90 &&
+                                    point.latitude <= 90 &&
+                                    point.longitude >= -180 &&
+                                    point.longitude <= 180 &&
+                                    typeof point.recordedAt === "string" &&
+                                    !Number.isNaN(
+                                        new Date(point.recordedAt).getTime()
+                                    )
+                            );
+
+                            if (validPoints.length === 0) {
+                                return null;
+                            }
+
+                            const latest = validPoints.reduce((a, b) =>
+                                new Date(b.recordedAt).getTime() >
+                                    new Date(a.recordedAt).getTime()
+                                    ? b
+                                    : a
+                            );
+
+                            return {
+                                vehicle: vehicle as Vehicle,
+                                telemetry: latest,
+                            };
+                        } catch (err: unknown) {
+                            if (
+                                err instanceof Error &&
+                                err.name === "AbortError"
+                            ) {
+                                throw err;
+                            }
+
+                            console.error(
+                                `Failed to load telemetry for ${vehicle.vehicleId}:`,
+                                err
+                            );
+
+                            return null;
+                        }
+                    })
+                );
+
+                if (!signal.aborted) {
+                    const validLocations = results.filter(
+                        (item): item is VehicleLocation => item !== null
+                    );
+
+                    console.log(
+                        "Vehicles displayed on map:",
+                        validLocations.map(({ vehicle, telemetry }) => ({
+                            vehicleId: vehicle.vehicleId,
+                            latitude: telemetry.latitude,
+                            longitude: telemetry.longitude,
+                        }))
+                    );
+
+                    setLocations(validLocations);
+                }
+            } catch (err: unknown) {
+                if (
+                    err instanceof Error &&
+                    err.name === "AbortError"
+                ) {
+                    return;
+                }
+
+                setError(
+                    err instanceof Error
+                        ? err.message
+                        : "Failed to load fleet data"
+                );
+            } finally {
+                if (!signal.aborted) {
+                    setLoading(false);
+                }
+            }
+        },
+        []
+    );
+    useEffect(() => {
+        if (!latestTelemetry) return;
+
+        setLocations((currentLocations) =>
+            currentLocations.map((location) => {
+                if (
+                    location.vehicle.vehicleId !== latestTelemetry.vehicleId
+                ) {
+                    return location;
+                }
+
+                return {
+                    ...location,
+                    telemetry: {
+                        ...location.telemetry,
+                        latitude: latestTelemetry.latitude,
+                        longitude: latestTelemetry.longitude,
+                        speed:
+                            latestTelemetry.speed ?? location.telemetry.speed,
+                        recordedAt:
+                            latestTelemetry.recordedAt ?? new Date().toISOString(),
+                    },
+                };
+            })
         );
+    }, [latestTelemetry]);
+    useEffect(() => {
+        if (!latestTelemetry) return;
 
-        if (!vehiclesResponse.ok) {
-          throw new Error(
-            `Failed to load vehicles: ${vehiclesResponse.status}`
-          );
-        }
+        console.log("Updating map with live telemetry:", latestTelemetry);
 
-        const vehiclesResult: VehiclesResponse =
-          await vehiclesResponse.json();
+        setLocations((currentLocations) =>
+            currentLocations.map((location) => {
+                if (location.vehicle.vehicleId !== latestTelemetry.vehicleId) {
+                    return location;
+                }
 
-        if (
-          !vehiclesResult.success ||
-          !Array.isArray(vehiclesResult.data)
-        ) {
-          throw new Error("Invalid vehicles response");
-        }
+                return {
+                    ...location,
+                    telemetry: {
+                        ...location.telemetry,
+                        latitude: latestTelemetry.latitude,
+                        longitude: latestTelemetry.longitude,
+                        speed: latestTelemetry.speed ?? location.telemetry.speed,
+                        recordedAt:
+                            latestTelemetry.recordedAt ?? new Date().toISOString(),
+                    },
+                };
+            })
+        );
+    }, [latestTelemetry]);
+    useEffect(() => {
+        const controller = new AbortController();
+        let requestInProgress = false;
 
-        const results = await Promise.all(
-          vehiclesResult.data.map(async (vehicle) => {
-            if (!vehicle.vehicleId) return null;
+        const poll = async () => {
+            if (requestInProgress || controller.signal.aborted) {
+                return;
+            }
+
+            requestInProgress = true;
 
             try {
-              const response = await fetch(
-                `http://localhost:8000/api/telemetry/${encodeURIComponent(
-                  vehicle.vehicleId
-                )}?${query}`,
-                { signal }
-              );
-
-              if (!response.ok) return null;
-
-              const result: TelemetryResponse = await response.json();
-
-              if (!result.success || !Array.isArray(result.data)) {
-                return null;
-              }
-
-              const validPoints = result.data.filter(
-                (point) =>
-                  Number.isFinite(point.latitude) &&
-                  Number.isFinite(point.longitude) &&
-                  point.latitude >= -90 &&
-                  point.latitude <= 90 &&
-                  point.longitude >= -180 &&
-                  point.longitude <= 180 &&
-                  !Number.isNaN(new Date(point.recordedAt).getTime())
-              );
-
-              if (validPoints.length === 0) return null;
-
-              const latest = validPoints.reduce((a, b) =>
-                new Date(b.recordedAt).getTime() >
-                new Date(a.recordedAt).getTime()
-                  ? b
-                  : a
-              );
-
-              return {
-                vehicle: vehicle as Vehicle,
-                telemetry: latest,
-              };
-            } catch (err: unknown) {
-              if (err instanceof Error && err.name === "AbortError") {
-                throw err;
-              }
-
-              return null;
+                await fetchFleetTelemetry(controller.signal);
+            } finally {
+                requestInProgress = false;
             }
-          })
-        );
+        };
 
-        if (!signal.aborted) {
-          setLocations(
-            results.filter(
-              (item): item is VehicleLocation => item !== null
-            )
-          );
-        }
-      } catch (err: unknown) {
-        if (err instanceof Error && err.name === "AbortError") return;
+        void poll();
 
-        setError(
-          err instanceof Error ? err.message : "Failed to load fleet data"
-        );
-      } finally {
-        if (!signal.aborted) {
-          setLoading(false);
-        }
-      }
-    },
-    []
-  );
+        const intervalId = window.setInterval(() => {
+            void poll();
+        }, 5000);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let requestInProgress = false;
+        return () => {
+            window.clearInterval(intervalId);
+            controller.abort();
+        };
+    }, [fetchFleetTelemetry]);
 
-    const poll = async () => {
-      if (requestInProgress || controller.signal.aborted) return;
-
-      requestInProgress = true;
-
-      try {
-        await fetchFleetTelemetry(controller.signal);
-      } finally {
-        requestInProgress = false;
-      }
+    const resetMap = () => {
+        setResetView((value) => value + 1);
     };
 
-    void poll();
+    return (
+        <section className="map-panel">
+            <div className="map-header">
+                <div>
+                    <h2>Live Fleet Map</h2>
+                    <p>
+                        {locations.length} vehicle
+                        {locations.length === 1 ? "" : "s"} with telemetry
+                    </p>
+                </div>
 
-    const intervalId = window.setInterval(() => {
-      void poll();
-    }, 5000);
+                <div className="map-tools">
+                    <button
+                        type="button"
+                        aria-label="Map layers"
+                        title="Map layers"
+                    >
+                        <Layers size={17} />
+                    </button>
 
-    return () => {
-      window.clearInterval(intervalId);
-      controller.abort();
-    };
-  }, [fetchFleetTelemetry]);
+                    <button
+                        type="button"
+                        aria-label="Fit all vehicles on map"
+                        title="Fit all vehicles on map"
+                        onClick={resetMap}
+                    >
+                        <Maximize2 size={17} />
+                    </button>
+                </div>
+            </div>
 
-  const resetMap = () => setResetView((value) => value + 1);
+            {loading && (
+                <p className="map-message">
+                    Loading fleet telemetry...
+                </p>
+            )}
 
-  return (
-    <section className="map-panel">
-      <div className="map-header">
-        <div>
-          <h2>Live Fleet Map</h2>
-          <p>
-            {locations.length} vehicle
-            {locations.length === 1 ? "" : "s"} with telemetry
-          </p>
-        </div>
+            {error && (
+                <p className="map-message" role="alert">
+                    Unable to load fleet data: {error}
+                </p>
+            )}
 
-        <div className="map-tools">
-          <button
-            type="button"
-            aria-label="Map layers"
-            title="Map layers"
-          >
-            <Layers size={17} />
-          </button>
+            {!loading && !error && locations.length === 0 && (
+                <p className="map-message">
+                    No vehicles have telemetry in the last 48 hours.
+                </p>
+            )}
 
-          <button
-            type="button"
-            aria-label="Fit all vehicles on map"
-            title="Fit all vehicles on map"
-            onClick={resetMap}
-          >
-            <Maximize2 size={17} />
-          </button>
-        </div>
-      </div>
+            <div className="map-container">
+                <MapContainer
+                    center={[23.7957, 86.4304]}
+                    zoom={13}
+                    scrollWheelZoom
+                    className="leaflet-map"
+                >
+                    <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
 
-      {loading && (
-        <p className="map-message">Loading fleet telemetry...</p>
-      )}
+                    <MapController
+                        locations={locations}
+                        selectedVehicleId={selectedVehicleId}
+                        markerRefs={markerRefs}
+                        resetView={resetView}
+                    />
 
-      {error && (
-        <p className="map-message" role="alert">
-          Unable to load fleet data: {error}
-        </p>
-      )}
-
-      {!loading && !error && locations.length === 0 && (
-        <p className="map-message">
-          No vehicles have telemetry in the last 24 hours.
-        </p>
-      )}
-
-      <div className="map-container">
-        <MapContainer
-          center={[23.7957, 86.4304]}
-          zoom={13}
-          scrollWheelZoom
-          className="leaflet-map"
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-
-          <MapController
-            locations={locations}
-            selectedVehicleId={selectedVehicleId}
-            markerRefs={markerRefs}
-            resetView={resetView}
-          />
-
-          {locations.map(({ vehicle, telemetry }) => (
-            <Marker
-              key={vehicle.vehicleId}
-              ref={(marker) => {
-                markerRefs.current[vehicle.vehicleId] = marker;
-              }}
-              position={[telemetry.latitude, telemetry.longitude]}
-              icon={vehicleIcon}
-            >
-              <Popup>
-                <strong>{vehicle.registrationNumber}</strong>
-                <br />
-                Vehicle ID: {vehicle.vehicleId}
-                <br />
-                Type: {vehicle.vehicleType}
-                <br />
-                Status: {vehicle.status}
-                <br />
-                Speed: {telemetry.speed} km/h
-                <br />
-                Latitude: {telemetry.latitude}
-                <br />
-                Longitude: {telemetry.longitude}
-                <br />
-                Recorded:{" "}
-                {new Date(telemetry.recordedAt).toLocaleString()}
-              </Popup>
-            </Marker>
-          ))}
-        </MapContainer>
-      </div>
-    </section>
-  );
+                    {locations.map(({ vehicle, telemetry }) => (
+                        <Marker
+                            key={vehicle.vehicleId}
+                            ref={(marker) => {
+                                markerRefs.current[vehicle.vehicleId] = marker;
+                            }}
+                            position={getDisplayPosition(
+                                locations,
+                                vehicle.vehicleId
+                            )}
+                            icon={vehicleIcon}
+                        >
+                            <Popup>
+                                <strong>{vehicle.registrationNumber}</strong>
+                                <br />
+                                Vehicle ID: {vehicle.vehicleId}
+                                <br />
+                                Type: {vehicle.vehicleType}
+                                <br />
+                                Status: {vehicle.status}
+                                <br />
+                                Speed: {telemetry.speed} km/h
+                                <br />
+                                Latitude: {telemetry.latitude}
+                                <br />
+                                Longitude: {telemetry.longitude}
+                                <br />
+                                Recorded:{" "}
+                                {new Date(
+                                    telemetry.recordedAt
+                                ).toLocaleString()}
+                            </Popup>
+                        </Marker>
+                    ))}
+                </MapContainer>
+            </div>
+        </section>
+    );
 }
 
 export default MapPanel;
