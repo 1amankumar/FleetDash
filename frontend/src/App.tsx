@@ -6,8 +6,7 @@ import DashboardHeader from "./components/DashboardHeader";
 import FleetStats from "./components/FleetStats";
 import MapPanel from "./components/MapPanel";
 import VehicleList from "./components/VehicleList";
-import socket from "./services/socket";
-import { useTelemetry } from "./hooks/useTelemetry";
+import GeofenceAlerts from "./components/GeofenceAlerts";
 
 import "./App.css";
 
@@ -28,16 +27,8 @@ function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const latestTelemetry = useTelemetry();
-  
-const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
-  null
-);
-useEffect(() => {
-  if (latestTelemetry) {
-    console.log("Dashboard received live telemetry:", latestTelemetry);
-  }
-}, [latestTelemetry]);
+  const [selectedVehicleId, setSelectedVehicleId] =
+    useState<string | null>(null);
 
   const fetchVehicles = useCallback(async () => {
     setLoading(true);
@@ -54,7 +45,10 @@ useEffect(() => {
 
       const result: VehiclesResponse = await response.json();
 
-      if (!Array.isArray(result.data)) {
+      if (
+        !result.success ||
+        !Array.isArray(result.data)
+      ) {
         throw new Error("Invalid vehicle data received from the server");
       }
 
@@ -73,19 +67,6 @@ useEffect(() => {
   useEffect(() => {
     void fetchVehicles();
   }, [fetchVehicles]);
-  useEffect(() => {
-  console.log("Socket object loaded:", socket);
-
-  socket.on("connect", () => {
-    console.log("Socket connected:", socket.id);
-  });
-
-  socket.on("connect_error", (error) => {
-    console.error("Socket error:", error.message);
-  });
-
-  socket.connect();
-}, []);
 
   return (
     <main className="dashboard">
@@ -119,22 +100,31 @@ useEffect(() => {
         {error && (
           <div className="error-banner" role="alert">
             <p>Unable to load vehicles: {error}</p>
-            <button type="button" onClick={() => void fetchVehicles()}>
+
+            <button
+              type="button"
+              onClick={() => void fetchVehicles()}
+              disabled={loading}
+            >
               Retry
             </button>
           </div>
         )}
+
         <FleetStats vehicles={vehicles} />
+
         <div className="dashboard-grid">
           <MapPanel selectedVehicleId={selectedVehicleId} />
 
-<VehicleList
-  vehicles={vehicles}
-  loading={loading}
-  error={error}
-  selectedVehicleId={selectedVehicleId}
-  onSelectVehicle={setSelectedVehicleId}
-/>
+          <GeofenceAlerts />
+
+          <VehicleList
+            vehicles={vehicles}
+            loading={loading}
+            error={error}
+            selectedVehicleId={selectedVehicleId}
+            onSelectVehicle={setSelectedVehicleId}
+          />
         </div>
       </div>
     </main>

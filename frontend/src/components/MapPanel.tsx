@@ -13,6 +13,7 @@ import {
   Popup,
   useMap,
 } from "react-leaflet";
+import FleetCanvas from "./FleetCanvas";
 import { Layers, Maximize2 } from "lucide-react";
 import L from "leaflet";
 import type { Vehicle as AppVehicle } from "../App";
@@ -285,7 +286,7 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
 
               const latest = validPoints.reduce((a, b) =>
                 new Date(b.recordedAt).getTime() >
-                new Date(a.recordedAt).getTime()
+                  new Date(a.recordedAt).getTime()
                   ? b
                   : a
               );
@@ -518,7 +519,16 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
             </Marker>
           ))}
         </MapContainer>
+
       </div>
+      <FleetCanvas
+        vehicles={locations.map(({ vehicle, telemetry }) => ({
+          vehicleId: vehicle.vehicleId,
+          latitude: telemetry.latitude,
+          longitude: telemetry.longitude,
+          speed: telemetry.speed,
+        }))}
+      />
     </section>
   );
 }
