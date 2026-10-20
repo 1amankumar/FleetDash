@@ -2,143 +2,203 @@
 import Vehicle from "../models/Vehicle.js";
 import TelemetryBucket from "../models/TelemetryBucket.js";
 
-interface AddTelemetryInput {
-    vehicleId: string;
-    latitude: number;
-    longitude: number;
-    recordedAt?: string;
-    speed?: number;
+const VEHICLE_CACHE_TTL_MS = 60_000;
+
+interface CachedVehicle {
+  vehicle: InstanceType<typeof Vehicle>;
+  expiresAt: number;
+}
+
+const vehicleCache = new Map<string, CachedVehicle>();
+
+async function getCachedVehicle(vehicleId: string) {
+  const key = vehicleId.trim();
+  const cached = vehicleCache.get(key);
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.vehicle;
+  }
+
+  if (cached) {
+    vehicleCache.delete(key);
+  }
+
+  const vehicle = await Vehicle.findOne({
+    vehicleId: key,
+  });
+
+  if (vehicle) {
+    vehicleCache.set(key, {
+      vehicle,
+      expiresAt: Date.now() + VEHICLE_CACHE_TTL_MS,
+    });
+  }
+
+  return vehicle;
+}
+
+export interface AddTelemetryInput {
+  vehicleId: string;
+  latitude: number;
+  longitude: number;
+  recordedAt?: string;
+  speed?: number;
 }
 
 export const addTelemetry = async (
-    input: AddTelemetryInput
+  input: AddTelemetryInput
 ) => {
-    const {
-        vehicleId,
-        latitude,
-        longitude,
-        recordedAt,
-        speed,
-    } = input;
+  const {
+    vehicleId,
+    latitude,
+    longitude,
+    recordedAt,
+    speed,
+  } = input;
 
-    // 1. Validate the vehicle ID and GPS coordinates.
-    if (
-        typeof vehicleId !== "string" ||
-        !vehicleId.trim() ||
-        !Number.isFinite(latitude) ||
-        latitude < -90 ||
-        latitude > 90 ||
-        !Number.isFinite(longitude) ||
-        longitude < -180 ||
-        longitude > 180 ||
-        (speed !== undefined &&
-            (!Number.isFinite(speed) || speed < 0))
-    ) {
-        throw new Error("INVALID_TELEMETRY");
-    }
+  // Validate vehicle ID
+  if (
+    typeof vehicleId !== "string" ||
+    vehicleId.trim().length === 0
+  ) {
+    throw new Error("INVALID_TELEMETRY");
+  }
 
-    // 2. Find the vehicle in MongoDB.
-    const vehicle = await Vehicle.findOne({
-        vehicleId: vehicleId.trim(),
+  // Validate coordinates
+  if (
+    !Number.isFinite(latitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    !Number.isFinite(longitude) ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    throw new Error("INVALID_TELEMETRY");
+  }
+
+  // Validate speed when provided
+  if (
+    speed !== undefined &&
+    (!Number.isFinite(speed) || speed < 0)
+  ) {
+    throw new Error("INVALID_TELEMETRY");
+  }
+
+  // Validate timestamp
+  const timestamp =
+    recordedAt === undefined
+      ? new Date()
+      : new Date(recordedAt);
+
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new Error("INVALID_TIMESTAMP");
+  }
+
+  // 1. Get vehicle and measure lookup/cache time
+  const vehicleLookupStarted = performance.now();
+
+  const vehicle = await getCachedVehicle(vehicleId);
+
+  const vehicleLookupMs =
+    performance.now() - vehicleLookupStarted;
+
+  if (!vehicle) {
+    console.log("[Database breakdown]", {
+      vehicleLookupMs: Number(vehicleLookupMs.toFixed(2)),
+      bucketWriteMs: null,
+      result: "VEHICLE_NOT_FOUND",
     });
 
-    if (!vehicle) {
-        throw new Error("VEHICLE_NOT_FOUND");
-    }
+    throw new Error("VEHICLE_NOT_FOUND");
+  }
 
-    // 3. Parse the timestamp or use the current time.
-    const timestamp =
-        recordedAt === undefined
-            ? new Date()
-            : new Date(recordedAt);
+  // 2. Calculate the hourly bucket
+  const bucketStart = new Date(timestamp);
+  bucketStart.setUTCMinutes(0, 0, 0);
 
-    if (Number.isNaN(timestamp.getTime())) {
-        throw new Error("INVALID_TIMESTAMP");
-    }
+  const bucketEnd = new Date(
+    bucketStart.getTime() + 60 * 60 * 1000
+  );
 
-    // 4. Calculate the beginning of the UTC hour.
-    const bucketStart = new Date(timestamp);
-    bucketStart.setUTCMinutes(0, 0, 0);
+  const point = {
+    latitude,
+    longitude,
+    recordedAt: timestamp,
+    ...(speed !== undefined ? { speed } : {}),
+  };
 
-    // 5. Calculate the end of the UTC hour.
-    const bucketEnd = new Date(
-        bucketStart.getTime() + 60 * 60 * 1000
-    );
+  // 3. Save telemetry and measure write time
+  const bucketWriteStarted = performance.now();
 
-    // 6. Prepare the GPS point.
-    const point = {
-        latitude,
-        longitude,
-        recordedAt: timestamp,
-        ...(speed !== undefined ? { speed } : {}),
-    };
-
-    // 7. Find the bucket or create it, then append the point.
-    await TelemetryBucket.findOneAndUpdate(
-        {
-            vehicle: vehicle._id,
-            bucketStart,
-        },
-        {
-            $setOnInsert: {
-                bucketEnd,
-            },
-            $push: {
-                points: point,
-            },
-        },
-        {
-            upsert: true,
-            returnDocument: "after",
-            runValidators: true,
-        }
-    );
-
-    // 8. Return a summary of the saved telemetry.
-    return {
-        vehicleId: vehicle.vehicleId,
-        bucketStart,
+  await TelemetryBucket.updateOne(
+    {
+      vehicle: vehicle._id,
+      bucketStart,
+    },
+    {
+      $setOnInsert: {
         bucketEnd,
-        point,
-    };
-};
+      },
+      $push: {
+        points: point,
+      },
+    },
+    {
+      upsert: true,
+      runValidators: true,
+    }
+  );
 
+  const bucketWriteMs =
+    performance.now() - bucketWriteStarted;
+
+  // 4. Log timing breakdown
+  console.log("[Database breakdown]", {
+    vehicleLookupMs: Number(vehicleLookupMs.toFixed(2)),
+    bucketWriteMs: Number(bucketWriteMs.toFixed(2)),
+    totalDatabaseMs: Number(
+      (vehicleLookupMs + bucketWriteMs).toFixed(2)
+    ),
+  });
+
+  // 5. Return telemetry details
+  return {
+    vehicleId: vehicle.vehicleId,
+    bucketStart,
+    bucketEnd,
+    point,
+  };
+};
 
 export const getVehicleTelemetry = async (
-    vehicleId: string,
-    from: Date,
-    to: Date
+  vehicleId: string,
+  from: Date,
+  to: Date
 ) => {
-    const vehicle = await Vehicle.findOne({
-        vehicleId: vehicleId.trim(),
-    });
+  const vehicle = await getCachedVehicle(vehicleId);
 
-    if (!vehicle) {
-        throw new Error("VEHICLE_NOT_FOUND");
-    }
+  if (!vehicle) {
+    throw new Error("VEHICLE_NOT_FOUND");
+  }
 
-    const buckets = await TelemetryBucket.find({
-        vehicle: vehicle._id,
-        bucketStart: { $lt: to },
-        bucketEnd: { $gt: from },
-    }).sort({ bucketStart: 1 });
+  const buckets = await TelemetryBucket.find({
+    vehicle: vehicle._id,
+    bucketStart: { $lt: to },
+    bucketEnd: { $gt: from },
+  }).sort({ bucketStart: 1 });
 
-    const points = buckets
-        .flatMap((bucket) => bucket.points)
-        .filter(
-            (point) =>
-                point.recordedAt >= from &&
-                point.recordedAt <= to
-        )
-        .sort(
-            (a, b) =>
-                a.recordedAt.getTime() - b.recordedAt.getTime()
-        );
+  const points = buckets.flatMap((bucket) =>
+    bucket.points.filter(
+      (point) =>
+        point.recordedAt >= from &&
+        point.recordedAt <= to
+    )
+  );
 
-    return {
-        vehicleId: vehicle.vehicleId,
-        count: points.length,
-        data: points,
-    };
+  return {
+    vehicleId: vehicle.vehicleId,
+    from,
+    to,
+    points,
+  };
 };
-

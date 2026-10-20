@@ -1,14 +1,22 @@
 
 import type { Request, Response } from "express";
-import { addTelemetry, getVehicleTelemetry } from "../services/telemetry.service.js";
-import { processTelemetryInWorker } from "../services/telemetryWorker.service.js";
-import { publishTelemetryEvent } from "../services/telemetryPublisher.service.js";
-
+import {
+    addTelemetry,
+    getVehicleTelemetry,
+} from "../services/telemetry.service.js";
+import {
+    processTelemetryWithPool,
+} from "../services/telemetryWorkerPool.service.js";
+import {
+    publishTelemetryEvent,
+} from "../services/telemetryPublisher.service.js";
 
 export const createTelemetry = async (
     req: Request,
     res: Response
 ): Promise<void> => {
+    const requestStarted = performance.now();
+
     try {
         const {
             vehicleId,
@@ -18,6 +26,7 @@ export const createTelemetry = async (
             speed,
         } = req.body ?? {};
 
+        // Step 1: Validate the incoming request.
         if (
             typeof vehicleId !== "string" ||
             !vehicleId.trim() ||
@@ -25,7 +34,8 @@ export const createTelemetry = async (
             typeof longitude !== "number" ||
             (recordedAt !== undefined &&
                 typeof recordedAt !== "string") ||
-            (speed !== undefined && typeof speed !== "number")
+            (speed !== undefined &&
+                typeof speed !== "number")
         ) {
             res.status(400).json({
                 success: false,
@@ -34,14 +44,18 @@ export const createTelemetry = async (
             return;
         }
 
-        // Step 1: Validate the event in the worker thread.
-        const workerResult = await processTelemetryInWorker({
+        // Step 2: Validate telemetry using the worker pool.
+        const workerStarted = performance.now();
+
+        const workerResult = await processTelemetryWithPool({
             vehicleId,
             latitude,
             longitude,
             ...(recordedAt !== undefined ? { recordedAt } : {}),
             ...(speed !== undefined ? { speed } : {}),
         });
+
+        const workerMs = performance.now() - workerStarted;
 
         if (!workerResult.success || !workerResult.data) {
             res.status(400).json({
@@ -51,12 +65,16 @@ export const createTelemetry = async (
             return;
         }
 
-        
-        // Step 2: Save the validated event to MongoDB.
+        // Step 3: Save telemetry to MongoDB.
+        const databaseStarted = performance.now();
+
         const result = await addTelemetry(workerResult.data);
 
-        // Step 3: Publish the saved event through Redis Pub/Sub.
-        // If Redis fails, keep the successful MongoDB save successful.
+        const databaseMs = performance.now() - databaseStarted;
+
+        // Step 4: Publish the saved event to Redis.
+        const redisStarted = performance.now();
+
         try {
             await publishTelemetryEvent(workerResult.data);
         } catch (publishError: unknown) {
@@ -66,13 +84,23 @@ export const createTelemetry = async (
             );
         }
 
-        // Step 4: Send exactly one success response.
+        const redisMs = performance.now() - redisStarted;
+        const totalMs = performance.now() - requestStarted;
+
+        // Temporary diagnostic logging.
+        console.log("[Telemetry timing]", {
+            workerMs: Number(workerMs.toFixed(2)),
+            databaseMs: Number(databaseMs.toFixed(2)),
+            redisMs: Number(redisMs.toFixed(2)),
+            totalMs: Number(totalMs.toFixed(2)),
+        });
+
+        // Step 5: Return exactly one success response.
         res.status(201).json({
             success: true,
             message: "Telemetry recorded successfully",
             data: result,
         });
-
     } catch (error: unknown) {
         if (res.headersSent) {
             console.error("Error after response was sent:", error);
@@ -94,14 +122,17 @@ export const createTelemetry = async (
             if (error.message === "VEHICLE_NOT_FOUND") {
                 res.status(404).json({
                     success: false,
-                    message: "Vehicle not found. Register the vehicle first.",
+                    message:
+                        "Vehicle not found. Register the vehicle first.",
                 });
                 return;
             }
+
             if (error.message === "TELEMETRY_QUEUE_FULL") {
                 res.status(503).json({
                     success: false,
-                    message: "Telemetry processing is busy. Please retry later.",
+                    message:
+                        "Telemetry processing is busy. Please retry later.",
                 });
                 return;
             }
@@ -115,8 +146,6 @@ export const createTelemetry = async (
         });
     }
 };
-
-
 
 export const fetchVehicleTelemetry = async (
     req: Request,
@@ -150,7 +179,8 @@ export const fetchVehicleTelemetry = async (
         ) {
             res.status(400).json({
                 success: false,
-                message: "Provide a valid time range; from must precede to",
+                message:
+                    "Provide a valid time range; from must precede to",
             });
             return;
         }
@@ -185,4 +215,3 @@ export const fetchVehicleTelemetry = async (
         });
     }
 };
-

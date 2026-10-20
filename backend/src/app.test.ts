@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import app from "./app.js";
+import { after } from "node:test";
+import { closeTelemetryWorkerPool } from "./services/telemetryWorkerPool.service.js";
 
 describe("FleetDash API health check", () => {
   it("returns HTTP 200 and a success response", async () => {
@@ -96,4 +98,11 @@ describe("Telemetry query validation", () => {
       "Provide a valid time range; from must precede to"
     );
   });
+});
+setTimeout(() => {
+  console.log("Active handles:", process.getActiveResourcesInfo());
+}, 1000).unref();
+
+after(async () => {
+  await closeTelemetryWorkerPool();
 });
