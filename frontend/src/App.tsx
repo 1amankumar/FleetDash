@@ -31,8 +31,6 @@ function App() {
     useState<string | null>(null);
 
   const fetchVehicles = useCallback(async () => {
-    setLoading(true);
-    setError("");
 
     try {
       const response = await fetch(
@@ -65,8 +63,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+  const timer = window.setTimeout(() => {
     void fetchVehicles();
-  }, [fetchVehicles]);
+  }, 0);
+
+  return () => window.clearTimeout(timer);
+}, [fetchVehicles]);
 
   return (
     <main className="dashboard">

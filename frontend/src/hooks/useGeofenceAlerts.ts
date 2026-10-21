@@ -17,8 +17,11 @@ export function useGeofenceAlerts() {
 
   useEffect(() => {
     const handleAlert = (alert: GeofenceAlert) => {
+      console.log("Geofence alert received by frontend:", alert);
       setAlerts((current) => [alert, ...current].slice(0, 50));
     };
+
+    console.log("Registering geofence:alert listener");
 
     socket.on("geofence:alert", handleAlert);
 
