@@ -191,10 +191,15 @@ export const fetchVehicleTelemetry = async (
             to
         );
 
+
         res.status(200).json({
             success: true,
-            ...result,
+            vehicleId: result.vehicleId,
+            from: result.from,
+            to: result.to,
+            data: result.points,
         });
+
     } catch (error: unknown) {
         if (
             error instanceof Error &&
