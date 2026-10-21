@@ -15,8 +15,6 @@ export const createTelemetry = async (
     req: Request,
     res: Response
 ): Promise<void> => {
-    const requestStarted = performance.now();
-
     try {
         const {
             vehicleId,
@@ -45,8 +43,6 @@ export const createTelemetry = async (
         }
 
         // Step 2: Validate telemetry using the worker pool.
-        const workerStarted = performance.now();
-
         const workerResult = await processTelemetryWithPool({
             vehicleId,
             latitude,
@@ -55,26 +51,19 @@ export const createTelemetry = async (
             ...(speed !== undefined ? { speed } : {}),
         });
 
-        const workerMs = performance.now() - workerStarted;
-
         if (!workerResult.success || !workerResult.data) {
             res.status(400).json({
                 success: false,
-                message: workerResult.message ?? "Invalid telemetry data",
+                message:
+                    workerResult.message ?? "Invalid telemetry data",
             });
             return;
         }
 
         // Step 3: Save telemetry to MongoDB.
-        const databaseStarted = performance.now();
-
         const result = await addTelemetry(workerResult.data);
 
-        const databaseMs = performance.now() - databaseStarted;
-
         // Step 4: Publish the saved event to Redis.
-        const redisStarted = performance.now();
-
         try {
             await publishTelemetryEvent(workerResult.data);
         } catch (publishError: unknown) {
@@ -84,18 +73,7 @@ export const createTelemetry = async (
             );
         }
 
-        const redisMs = performance.now() - redisStarted;
-        const totalMs = performance.now() - requestStarted;
-
-        // Temporary diagnostic logging.
-        console.log("[Telemetry timing]", {
-            workerMs: Number(workerMs.toFixed(2)),
-            databaseMs: Number(databaseMs.toFixed(2)),
-            redisMs: Number(redisMs.toFixed(2)),
-            totalMs: Number(totalMs.toFixed(2)),
-        });
-
-        // Step 5: Return exactly one success response.
+        // Step 5: Return the success response.
         res.status(201).json({
             success: true,
             message: "Telemetry recorded successfully",
@@ -191,7 +169,7 @@ export const fetchVehicleTelemetry = async (
             to
         );
 
-
+        // Keep the response shape expected by the frontend.
         res.status(200).json({
             success: true,
             vehicleId: result.vehicleId,
@@ -199,7 +177,6 @@ export const fetchVehicleTelemetry = async (
             to: result.to,
             data: result.points,
         });
-
     } catch (error: unknown) {
         if (
             error instanceof Error &&

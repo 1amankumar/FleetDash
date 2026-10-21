@@ -56,7 +56,7 @@ export const addTelemetry = async (
     speed,
   } = input;
 
-  // Validate vehicle ID
+  // 1. Validate vehicle ID
   if (
     typeof vehicleId !== "string" ||
     vehicleId.trim().length === 0
@@ -64,7 +64,7 @@ export const addTelemetry = async (
     throw new Error("INVALID_TELEMETRY");
   }
 
-  // Validate coordinates
+  // 2. Validate coordinates
   if (
     !Number.isFinite(latitude) ||
     latitude < -90 ||
@@ -76,7 +76,7 @@ export const addTelemetry = async (
     throw new Error("INVALID_TELEMETRY");
   }
 
-  // Validate speed when provided
+  // 3. Validate speed when provided
   if (
     speed !== undefined &&
     (!Number.isFinite(speed) || speed < 0)
@@ -84,7 +84,7 @@ export const addTelemetry = async (
     throw new Error("INVALID_TELEMETRY");
   }
 
-  // Validate timestamp
+  // 4. Validate timestamp
   const timestamp =
     recordedAt === undefined
       ? new Date()
@@ -94,25 +94,14 @@ export const addTelemetry = async (
     throw new Error("INVALID_TIMESTAMP");
   }
 
-  // 1. Get vehicle and measure lookup/cache time
-  const vehicleLookupStarted = performance.now();
-
+  // 5. Find the vehicle
   const vehicle = await getCachedVehicle(vehicleId);
 
-  const vehicleLookupMs =
-    performance.now() - vehicleLookupStarted;
-
   if (!vehicle) {
-    console.log("[Database breakdown]", {
-      vehicleLookupMs: Number(vehicleLookupMs.toFixed(2)),
-      bucketWriteMs: null,
-      result: "VEHICLE_NOT_FOUND",
-    });
-
     throw new Error("VEHICLE_NOT_FOUND");
   }
 
-  // 2. Calculate the hourly bucket
+  // 6. Calculate the hourly bucket
   const bucketStart = new Date(timestamp);
   bucketStart.setUTCMinutes(0, 0, 0);
 
@@ -120,6 +109,7 @@ export const addTelemetry = async (
     bucketStart.getTime() + 60 * 60 * 1000
   );
 
+  // 7. Prepare the telemetry point
   const point = {
     latitude,
     longitude,
@@ -127,9 +117,7 @@ export const addTelemetry = async (
     ...(speed !== undefined ? { speed } : {}),
   };
 
-  // 3. Save telemetry and measure write time
-  const bucketWriteStarted = performance.now();
-
+  // 8. Save telemetry to MongoDB
   await TelemetryBucket.updateOne(
     {
       vehicle: vehicle._id,
@@ -149,19 +137,7 @@ export const addTelemetry = async (
     }
   );
 
-  const bucketWriteMs =
-    performance.now() - bucketWriteStarted;
-
-  // 4. Log timing breakdown
-  console.log("[Database breakdown]", {
-    vehicleLookupMs: Number(vehicleLookupMs.toFixed(2)),
-    bucketWriteMs: Number(bucketWriteMs.toFixed(2)),
-    totalDatabaseMs: Number(
-      (vehicleLookupMs + bucketWriteMs).toFixed(2)
-    ),
-  });
-
-  // 5. Return telemetry details
+  // 9. Return saved telemetry details
   return {
     vehicleId: vehicle.vehicleId,
     bucketStart,
@@ -175,18 +151,21 @@ export const getVehicleTelemetry = async (
   from: Date,
   to: Date
 ) => {
+  // 1. Find the vehicle
   const vehicle = await getCachedVehicle(vehicleId);
 
   if (!vehicle) {
     throw new Error("VEHICLE_NOT_FOUND");
   }
 
+  // 2. Find hourly buckets overlapping the requested range
   const buckets = await TelemetryBucket.find({
     vehicle: vehicle._id,
     bucketStart: { $lt: to },
     bucketEnd: { $gt: from },
   }).sort({ bucketStart: 1 });
 
+  // 3. Filter points to the exact requested time range
   const points = buckets.flatMap((bucket) =>
     bucket.points.filter(
       (point) =>
@@ -195,6 +174,7 @@ export const getVehicleTelemetry = async (
     )
   );
 
+  // 4. Return telemetry data
   return {
     vehicleId: vehicle.vehicleId,
     from,
