@@ -1,4 +1,5 @@
 
+import { performance } from "node:perf_hooks";
 import Vehicle from "../models/Vehicle.js";
 import TelemetryBucket from "../models/TelemetryBucket.js";
 
@@ -94,8 +95,15 @@ export const addTelemetry = async (
     throw new Error("INVALID_TIMESTAMP");
   }
 
-  // 5. Find the vehicle
+  // 5. Measure vehicle lookup
+  const vehicleStarted = performance.now();
   const vehicle = await getCachedVehicle(vehicleId);
+
+  console.log(
+    `[POST benchmark] Vehicle lookup: ${
+      (performance.now() - vehicleStarted).toFixed(2)
+    } ms`
+  );
 
   if (!vehicle) {
     throw new Error("VEHICLE_NOT_FOUND");
@@ -117,7 +125,9 @@ export const addTelemetry = async (
     ...(speed !== undefined ? { speed } : {}),
   };
 
-  // 8. Save telemetry to MongoDB
+  // 8. Measure MongoDB write
+  const writeStarted = performance.now();
+
   await TelemetryBucket.updateOne(
     {
       vehicle: vehicle._id,
@@ -137,6 +147,12 @@ export const addTelemetry = async (
     }
   );
 
+  console.log(
+    `[POST benchmark] MongoDB write: ${
+      (performance.now() - writeStarted).toFixed(2)
+    } ms`
+  );
+
   // 9. Return saved telemetry details
   return {
     vehicleId: vehicle.vehicleId,
@@ -151,27 +167,62 @@ export const getVehicleTelemetry = async (
   from: Date,
   to: Date
 ) => {
-  // 1. Find the vehicle
+  // 1. Measure vehicle lookup
+  const vehicleStarted = performance.now();
+
   const vehicle = await getCachedVehicle(vehicleId);
+
+  console.log(
+    `[Telemetry benchmark] Vehicle lookup: ${
+      (performance.now() - vehicleStarted).toFixed(2)
+    } ms`
+  );
 
   if (!vehicle) {
     throw new Error("VEHICLE_NOT_FOUND");
   }
 
-  // 2. Find hourly buckets overlapping the requested range
+  // 2. Measure MongoDB bucket query
+  const queryStarted = performance.now();
+
   const buckets = await TelemetryBucket.find({
     vehicle: vehicle._id,
     bucketStart: { $lt: to },
     bucketEnd: { $gt: from },
-  }).sort({ bucketStart: 1 });
+  })
+    .sort({ bucketStart: 1 })
+    .lean()
+    .exec();
 
-  // 3. Filter points to the exact requested time range
+  console.log(
+    `[Telemetry benchmark] Lean MongoDB query: ${
+      (performance.now() - queryStarted).toFixed(2)
+    } ms; buckets: ${buckets.length}`
+  );
+
+  // 3. Measure point filtering
+  const filterStarted = performance.now();
+
   const points = buckets.flatMap((bucket) =>
     bucket.points.filter(
       (point) =>
         point.recordedAt >= from &&
         point.recordedAt <= to
     )
+  );
+    console.log(
+    `[Telemetry benchmark] Retrieved points: ${
+      buckets.reduce(
+        (total, bucket) => total + bucket.points.length,
+        0
+      )
+    }; returned points: ${points.length}`
+  );
+
+  console.log(
+    `[Telemetry benchmark] Point filtering: ${
+      (performance.now() - filterStarted).toFixed(2)
+    } ms; points: ${points.length}`
   );
 
   // 4. Return telemetry data
