@@ -162,6 +162,9 @@ export const addTelemetry = async (
   };
 };
 
+
+
+
 export const getVehicleTelemetry = async (
   vehicleId: string,
   from: Date,
@@ -173,7 +176,7 @@ export const getVehicleTelemetry = async (
   const vehicle = await getCachedVehicle(vehicleId);
 
   console.log(
-    `[Telemetry benchmark] Vehicle lookup: ${
+    `[GET benchmark] Vehicle lookup: ${
       (performance.now() - vehicleStarted).toFixed(2)
     } ms`
   );
@@ -182,50 +185,55 @@ export const getVehicleTelemetry = async (
     throw new Error("VEHICLE_NOT_FOUND");
   }
 
-  // 2. Measure MongoDB bucket query
+  // 2. Query matching buckets and filter points in MongoDB
   const queryStarted = performance.now();
 
-  const buckets = await TelemetryBucket.find({
-    vehicle: vehicle._id,
-    bucketStart: { $lt: to },
-    bucketEnd: { $gt: from },
-  })
-    .sort({ bucketStart: 1 })
-    .lean()
-    .exec();
+  const buckets = await TelemetryBucket.aggregate([
+    {
+      $match: {
+        vehicle: vehicle._id,
+        bucketStart: { $lt: to },
+        bucketEnd: { $gt: from },
+      },
+    },
+    {
+      $sort: {
+        bucketStart: 1,
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        points: {
+          $filter: {
+            input: "$points",
+            as: "point",
+            cond: {
+              $and: [
+                { $gte: ["$$point.recordedAt", from] },
+                { $lte: ["$$point.recordedAt", to] },
+              ],
+            },
+          },
+        },
+      },
+    },
+  ]).exec();
 
   console.log(
-    `[Telemetry benchmark] Lean MongoDB query: ${
+    `[GET benchmark] MongoDB query + filtered retrieval: ${
       (performance.now() - queryStarted).toFixed(2)
     } ms; buckets: ${buckets.length}`
   );
 
-  // 3. Measure point filtering
-  const filterStarted = performance.now();
-
-  const points = buckets.flatMap((bucket) =>
-    bucket.points.filter(
-      (point) =>
-        point.recordedAt >= from &&
-        point.recordedAt <= to
-    )
-  );
-    console.log(
-    `[Telemetry benchmark] Retrieved points: ${
-      buckets.reduce(
-        (total, bucket) => total + bucket.points.length,
-        0
-      )
-    }; returned points: ${points.length}`
-  );
+  // 3. Combine the filtered points
+  const points = buckets.flatMap((bucket) => bucket.points);
 
   console.log(
-    `[Telemetry benchmark] Point filtering: ${
-      (performance.now() - filterStarted).toFixed(2)
-    } ms; points: ${points.length}`
+    `[GET benchmark] Points returned: ${points.length}`
   );
 
-  // 4. Return telemetry data
+  // 4. Return the existing response structure
   return {
     vehicleId: vehicle.vehicleId,
     from,
@@ -233,3 +241,6 @@ export const getVehicleTelemetry = async (
     points,
   };
 };
+
+
+
