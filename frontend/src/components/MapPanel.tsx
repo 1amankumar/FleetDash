@@ -213,30 +213,34 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
 
   // Derive live locations instead of copying telemetry into state from an effect.
   const locations = useMemo<VehicleLocation[]>(() => {
-    if (latestByVehicle.size === 0) {
-      return baseLocations;
-    }
+  const locationsByVehicle = new Map<string, VehicleLocation>();
 
-    return baseLocations.map((location) => {
-      const event = latestByVehicle.get(location.vehicle.vehicleId);
+  // Start with vehicles that have historical telemetry.
+  for (const location of baseLocations) {
+    locationsByVehicle.set(location.vehicle.vehicleId, location);
+  }
 
-      if (!event) {
-        return location;
-      }
+  // Apply the latest live telemetry to known vehicles.
+  for (const event of latestByVehicle.values()) {
+    const existing = locationsByVehicle.get(event.vehicleId);
 
-      return {
-        ...location,
+    if (existing) {
+      locationsByVehicle.set(event.vehicleId, {
+        ...existing,
         telemetry: {
-          ...location.telemetry,
+          ...existing.telemetry,
           latitude: event.latitude,
           longitude: event.longitude,
-          speed: event.speed ?? location.telemetry.speed,
+          speed: event.speed ?? existing.telemetry.speed,
           recordedAt:
-            event.recordedAt ?? location.telemetry.recordedAt,
+            event.recordedAt ?? existing.telemetry.recordedAt,
         },
-      };
-    });
-  }, [baseLocations, latestByVehicle]);
+      });
+    }
+  }
+
+  return Array.from(locationsByVehicle.values());
+}, [baseLocations, latestByVehicle]);
 
   const fetchFleetTelemetry = useCallback(
     async (signal: AbortSignal) => {

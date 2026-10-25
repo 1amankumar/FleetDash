@@ -27,15 +27,16 @@ function isTelemetryEvent(value: unknown): value is TelemetryEvent {
     event.longitude >= -180 &&
     event.longitude <= 180 &&
     (event.speed === undefined ||
-      (typeof event.speed === "number" && Number.isFinite(event.speed))) &&
+      (typeof event.speed === "number" &&
+        Number.isFinite(event.speed))) &&
     (event.recordedAt === undefined ||
       typeof event.recordedAt === "string")
   );
 }
 
 export function useTelemetry(): TelemetryEvent[] {
-  const [telemetryBatch, setTelemetryBatch] =
-    useState<TelemetryEvent[]>([]);
+  const [latestByVehicle, setLatestByVehicle] =
+    useState<Map<string, TelemetryEvent>>(() => new Map());
 
   useEffect(() => {
     const handleBinaryBatch = (payload: unknown) => {
@@ -68,9 +69,34 @@ export function useTelemetry(): TelemetryEvent[] {
           "event(s)"
         );
 
-        if (validEvents.length > 0) {
-          setTelemetryBatch(validEvents);
-        }
+        if (validEvents.length === 0) return;
+
+        setLatestByVehicle((previous) => {
+          const updated = new Map(previous);
+
+          for (const event of validEvents) {
+            const existing = updated.get(event.vehicleId);
+
+            const eventTime = event.recordedAt
+              ? new Date(event.recordedAt).getTime()
+              : NaN;
+
+            const existingTime = existing?.recordedAt
+              ? new Date(existing.recordedAt).getTime()
+              : NaN;
+
+            if (
+              !existing ||
+              !Number.isFinite(eventTime) ||
+              !Number.isFinite(existingTime) ||
+              eventTime >= existingTime
+            ) {
+              updated.set(event.vehicleId, event);
+            }
+          }
+
+          return updated;
+        });
       } catch (error) {
         console.error("Failed to decode telemetry batch:", error);
       }
@@ -83,5 +109,5 @@ export function useTelemetry(): TelemetryEvent[] {
     };
   }, []);
 
-  return telemetryBatch;
+  return Array.from(latestByVehicle.values());
 }

@@ -63,12 +63,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-  const timer = window.setTimeout(() => {
-    void fetchVehicles();
-  }, 0);
+    const timer = window.setTimeout(() => {
+      void fetchVehicles();
+    }, 0);
 
-  return () => window.clearTimeout(timer);
-}, [fetchVehicles]);
+    return () => window.clearTimeout(timer);
+  }, [fetchVehicles]);
 
   return (
     <main className="dashboard">
@@ -126,6 +126,7 @@ function App() {
             error={error}
             selectedVehicleId={selectedVehicleId}
             onSelectVehicle={setSelectedVehicleId}
+            onVehicleAdded={fetchVehicles}
           />
         </div>
       </div>
