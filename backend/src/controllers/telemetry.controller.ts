@@ -5,9 +5,6 @@ import {
     getVehicleTelemetry,
 } from "../services/telemetry.service.js";
 import {
-    processTelemetryWithPool,
-} from "../services/telemetryWorkerPool.service.js";
-import {
     publishTelemetryEvent,
 } from "../services/telemetryPublisher.service.js";
 
@@ -42,30 +39,42 @@ export const createTelemetry = async (
             return;
         }
 
-        // Step 2: Validate telemetry using the worker pool.
-        const workerResult = await processTelemetryWithPool({
-            vehicleId,
-            latitude,
-            longitude,
-            ...(recordedAt !== undefined ? { recordedAt } : {}),
-            ...(speed !== undefined ? { speed } : {}),
-        });
+        // Step 2: Validate telemetry directly on the main thread.
+        const valid =
+            Number.isFinite(latitude) &&
+            latitude >= -90 &&
+            latitude <= 90 &&
+            Number.isFinite(longitude) &&
+            longitude >= -180 &&
+            longitude <= 180 &&
+            (speed === undefined ||
+                (Number.isFinite(speed) && speed >= 0)) &&
+            (recordedAt === undefined ||
+                !Number.isNaN(Date.parse(recordedAt)));
 
-        if (!workerResult.success || !workerResult.data) {
+        if (!valid) {
             res.status(400).json({
                 success: false,
-                message:
-                    workerResult.message ?? "Invalid telemetry data",
+                message: "Invalid telemetry data",
             });
             return;
         }
 
-        // Step 3: Save telemetry to MongoDB.
-        const result = await addTelemetry(workerResult.data);
+        // Step 3: Normalize the vehicle ID and prepare the event.
+        const telemetryInput = {
+            vehicleId: vehicleId.trim(),
+            latitude,
+            longitude,
+            ...(recordedAt !== undefined ? { recordedAt } : {}),
+            ...(speed !== undefined ? { speed } : {}),
+        };
 
-        // Step 4: Publish the saved event to Redis.
+        // Step 4: Save telemetry to MongoDB.
+        const result = await addTelemetry(telemetryInput);
+
+        // Step 5: Publish the event to Redis.
         try {
-            await publishTelemetryEvent(workerResult.data);
+            await publishTelemetryEvent(telemetryInput);
         } catch (publishError: unknown) {
             console.error(
                 "Telemetry saved, but Redis publishing failed:",
@@ -73,7 +82,7 @@ export const createTelemetry = async (
             );
         }
 
-        // Step 5: Return the success response.
+        // Step 6: Return the success response.
         res.status(201).json({
             success: true,
             message: "Telemetry recorded successfully",
@@ -169,7 +178,7 @@ export const fetchVehicleTelemetry = async (
             to
         );
 
-        // Keep the response shape expected by the frontend.
+        // Preserve the response structure expected by the frontend.
         res.status(200).json({
             success: true,
             vehicleId: result.vehicleId,

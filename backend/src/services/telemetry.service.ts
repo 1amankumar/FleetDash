@@ -1,5 +1,4 @@
 
-import { performance } from "node:perf_hooks";
 import Vehicle from "../models/Vehicle.js";
 import TelemetryBucket from "../models/TelemetryBucket.js";
 
@@ -57,7 +56,7 @@ export const addTelemetry = async (
     speed,
   } = input;
 
-  // 1. Validate vehicle ID
+  // 1. Validate vehicle ID.
   if (
     typeof vehicleId !== "string" ||
     vehicleId.trim().length === 0
@@ -65,7 +64,7 @@ export const addTelemetry = async (
     throw new Error("INVALID_TELEMETRY");
   }
 
-  // 2. Validate coordinates
+  // 2. Validate coordinates.
   if (
     !Number.isFinite(latitude) ||
     latitude < -90 ||
@@ -77,7 +76,7 @@ export const addTelemetry = async (
     throw new Error("INVALID_TELEMETRY");
   }
 
-  // 3. Validate speed when provided
+  // 3. Validate speed when provided.
   if (
     speed !== undefined &&
     (!Number.isFinite(speed) || speed < 0)
@@ -85,7 +84,7 @@ export const addTelemetry = async (
     throw new Error("INVALID_TELEMETRY");
   }
 
-  // 4. Validate timestamp
+  // 4. Validate timestamp.
   const timestamp =
     recordedAt === undefined
       ? new Date()
@@ -95,21 +94,14 @@ export const addTelemetry = async (
     throw new Error("INVALID_TIMESTAMP");
   }
 
-  // 5. Measure vehicle lookup
-  const vehicleStarted = performance.now();
+  // 5. Find the vehicle using the cache when possible.
   const vehicle = await getCachedVehicle(vehicleId);
-
-  console.log(
-    `[POST benchmark] Vehicle lookup: ${
-      (performance.now() - vehicleStarted).toFixed(2)
-    } ms`
-  );
 
   if (!vehicle) {
     throw new Error("VEHICLE_NOT_FOUND");
   }
 
-  // 6. Calculate the hourly bucket
+  // 6. Calculate the hourly bucket.
   const bucketStart = new Date(timestamp);
   bucketStart.setUTCMinutes(0, 0, 0);
 
@@ -117,7 +109,7 @@ export const addTelemetry = async (
     bucketStart.getTime() + 60 * 60 * 1000
   );
 
-  // 7. Prepare the telemetry point
+  // 7. Prepare the telemetry point.
   const point = {
     latitude,
     longitude,
@@ -125,9 +117,7 @@ export const addTelemetry = async (
     ...(speed !== undefined ? { speed } : {}),
   };
 
-  // 8. Measure MongoDB write
-  const writeStarted = performance.now();
-
+  // 8. Save telemetry to MongoDB.
   await TelemetryBucket.updateOne(
     {
       vehicle: vehicle._id,
@@ -147,13 +137,7 @@ export const addTelemetry = async (
     }
   );
 
-  console.log(
-    `[POST benchmark] MongoDB write: ${
-      (performance.now() - writeStarted).toFixed(2)
-    } ms`
-  );
-
-  // 9. Return saved telemetry details
+  // 9. Return saved telemetry details.
   return {
     vehicleId: vehicle.vehicleId,
     bucketStart,
@@ -162,32 +146,19 @@ export const addTelemetry = async (
   };
 };
 
-
-
-
 export const getVehicleTelemetry = async (
   vehicleId: string,
   from: Date,
   to: Date
 ) => {
-  // 1. Measure vehicle lookup
-  const vehicleStarted = performance.now();
-
+  // 1. Find the vehicle.
   const vehicle = await getCachedVehicle(vehicleId);
-
-  console.log(
-    `[GET benchmark] Vehicle lookup: ${
-      (performance.now() - vehicleStarted).toFixed(2)
-    } ms`
-  );
 
   if (!vehicle) {
     throw new Error("VEHICLE_NOT_FOUND");
   }
 
-  // 2. Query matching buckets and filter points in MongoDB
-  const queryStarted = performance.now();
-
+  // 2. Query matching buckets and filter points in MongoDB.
   const buckets = await TelemetryBucket.aggregate([
     {
       $match: {
@@ -220,20 +191,10 @@ export const getVehicleTelemetry = async (
     },
   ]).exec();
 
-  console.log(
-    `[GET benchmark] MongoDB query + filtered retrieval: ${
-      (performance.now() - queryStarted).toFixed(2)
-    } ms; buckets: ${buckets.length}`
-  );
-
-  // 3. Combine the filtered points
+  // 3. Combine the filtered points.
   const points = buckets.flatMap((bucket) => bucket.points);
 
-  console.log(
-    `[GET benchmark] Points returned: ${points.length}`
-  );
-
-  // 4. Return the existing response structure
+  // 4. Return the existing response structure.
   return {
     vehicleId: vehicle.vehicleId,
     from,
@@ -241,6 +202,3 @@ export const getVehicleTelemetry = async (
     points,
   };
 };
-
-
-
