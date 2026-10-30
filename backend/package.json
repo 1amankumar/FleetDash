@@ -4,8 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "test": "tsx --test src/app.test.ts src/services/geofence.service.test.ts"
-  },
+"test": "tsx --test src/app.test.ts src/services/geofence.service.test.ts src/services/telemetryWriteQueue.service.test.ts"  },
   "keywords": [],
   "author": "",
   "license": "ISC",

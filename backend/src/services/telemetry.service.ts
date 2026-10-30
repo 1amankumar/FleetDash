@@ -1,6 +1,9 @@
-import TelemetryBucket from "../models/TelemetryBucket.js";
+
 import { performance } from "node:perf_hooks";
+
+import TelemetryBucket from "../models/TelemetryBucket.js";
 import Vehicle from "../models/Vehicle.js";
+
 import { recordMetric } from "./telemetryMetrics.service.js";
 import { enqueueTelemetryWrite } from "./telemetryWriteQueue.service.js";
 
@@ -13,9 +16,17 @@ interface CachedVehicle {
 
 const vehicleCache = new Map<string, CachedVehicle>();
 
+// Share an ongoing database lookup between concurrent requests.
+const vehicleLookupInFlight = new Map<
+  string,
+  Promise<InstanceType<typeof Vehicle> | null>
+>();
+
 async function getCachedVehicle(vehicleId: string) {
   const started = performance.now();
   const key = vehicleId.trim();
+
+  // 1. Check completed cache entries.
   const cached = vehicleCache.get(key);
 
   if (cached && cached.expiresAt > Date.now()) {
@@ -31,25 +42,50 @@ async function getCachedVehicle(vehicleId: string) {
     vehicleCache.delete(key);
   }
 
-  try {
-    const vehicle = await Vehicle.findOne({
-      vehicleId: key,
-    });
+  // 2. Reuse an ongoing lookup if one exists.
+  const existingLookup = vehicleLookupInFlight.get(key);
 
-    if (vehicle) {
-      vehicleCache.set(key, {
-        vehicle,
-        expiresAt: Date.now() + VEHICLE_CACHE_TTL_MS,
-      });
+  if (existingLookup) {
+    const waitStarted = performance.now();
+
+    try {
+      return await existingLookup;
+    } finally {
+      recordMetric(
+        "vehicle_lookup.inflight_wait",
+        performance.now() - waitStarted
+      );
     }
-
-    return vehicle;
-  } finally {
-    recordMetric(
-      "vehicle_lookup.cache_miss_and_db",
-      performance.now() - started
-    );
   }
+
+  // 3. Start one database lookup for this vehicle.
+  const lookupPromise = (async () => {
+    try {
+      const vehicle = await Vehicle.findOne({
+        vehicleId: key,
+      });
+
+      if (vehicle) {
+        vehicleCache.set(key, {
+          vehicle,
+          expiresAt: Date.now() + VEHICLE_CACHE_TTL_MS,
+        });
+      }
+
+      return vehicle;
+    } finally {
+      recordMetric(
+        "vehicle_lookup.cache_miss_and_db",
+        performance.now() - started
+      );
+
+      vehicleLookupInFlight.delete(key);
+    }
+  })();
+
+  vehicleLookupInFlight.set(key, lookupPromise);
+
+  return lookupPromise;
 }
 
 export interface AddTelemetryInput {
@@ -112,7 +148,7 @@ export const addTelemetry = async (
       throw new Error("INVALID_TIMESTAMP");
     }
 
-    // 5. Find vehicle.
+    // 5. Find vehicle using single-flight caching.
     const vehicle = await getCachedVehicle(vehicleId);
 
     if (!vehicle) {
@@ -183,40 +219,37 @@ export const getVehicleTelemetry = async (
     }
 
     // 2. Query matching buckets.
-    const buckets = await import("../models/TelemetryBucket.js").then(
-      ({ default: TelemetryBucket }) =>
-        TelemetryBucket.aggregate([
-          {
-            $match: {
-              vehicle: vehicle._id,
-              bucketStart: { $lt: to },
-              bucketEnd: { $gt: from },
-            },
-          },
-          {
-            $sort: {
-              bucketStart: 1,
-            },
-          },
-          {
-            $project: {
-              _id: 0,
-              points: {
-                $filter: {
-                  input: "$points",
-                  as: "point",
-                  cond: {
-                    $and: [
-                      { $gte: ["$$point.recordedAt", from] },
-                      { $lte: ["$$point.recordedAt", to] },
-                    ],
-                  },
-                },
+    const buckets = await TelemetryBucket.aggregate([
+      {
+        $match: {
+          vehicle: vehicle._id,
+          bucketStart: { $lt: to },
+          bucketEnd: { $gt: from },
+        },
+      },
+      {
+        $sort: {
+          bucketStart: 1,
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          points: {
+            $filter: {
+              input: "$points",
+              as: "point",
+              cond: {
+                $and: [
+                  { $gte: ["$$point.recordedAt", from] },
+                  { $lte: ["$$point.recordedAt", to] },
+                ],
               },
             },
           },
-        ]).exec()
-    );
+        },
+      },
+    ]).exec();
 
     // 3. Combine filtered points.
     const points = buckets.flatMap(
