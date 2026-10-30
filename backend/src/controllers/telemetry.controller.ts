@@ -1,17 +1,27 @@
 
 import type { Request, Response } from "express";
+import { performance } from "node:perf_hooks";
+
 import {
     addTelemetry,
     getVehicleTelemetry,
 } from "../services/telemetry.service.js";
+
 import {
     publishTelemetryEvent,
 } from "../services/telemetryPublisher.service.js";
+
+import {
+    recordMetric,
+} from "../services/telemetryMetrics.service.js";
+import { clearScreenDown } from "node:readline";
 
 export const createTelemetry = async (
     req: Request,
     res: Response
 ): Promise<void> => {
+    const requestStarted = performance.now();
+
     try {
         const {
             vehicleId,
@@ -131,6 +141,11 @@ export const createTelemetry = async (
             success: false,
             message: "Internal server error",
         });
+    } finally {
+        recordMetric(
+            "http.telemetry_post",
+            performance.now() - requestStarted
+        );
     }
 };
 
@@ -138,6 +153,8 @@ export const fetchVehicleTelemetry = async (
     req: Request,
     res: Response
 ): Promise<void> => {
+    const requestStarted = performance.now();
+
     try {
         const vehicleId = req.params.vehicleId;
         const fromValue = req.query.from;
@@ -204,5 +221,10 @@ export const fetchVehicleTelemetry = async (
             success: false,
             message: "Internal server error",
         });
+    } finally {
+        recordMetric(
+            "http.telemetry_get",
+            performance.now() - requestStarted
+        );
     }
 };

@@ -1,9 +1,7 @@
-﻿import { clearScreenDown } from "node:readline";
-
-const BASE_URL = "http://localhost:8000";
+﻿const BASE_URL = "http://localhost:8000";
 const VEHICLE_ID = "TRUCK-101";
 const CONCURRENCY = 2000;
-const DURATION_MS = 1000;
+const DURATION_MS = 10_000;
 
 const latencies = [];
 let attempted = 0;
