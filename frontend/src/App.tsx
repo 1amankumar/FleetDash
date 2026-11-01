@@ -31,8 +31,9 @@ function App() {
     useState<string | null>(null);
 
   const fetchVehicles = useCallback(async () => {
-
     try {
+      setError("");
+
       const response = await fetch(
         "http://localhost:8000/api/vehicles"
       );
@@ -43,10 +44,7 @@ function App() {
 
       const result: VehiclesResponse = await response.json();
 
-      if (
-        !result.success ||
-        !Array.isArray(result.data)
-      ) {
+      if (!result.success || !Array.isArray(result.data)) {
         throw new Error("Invalid vehicle data received from the server");
       }
 
@@ -116,18 +114,22 @@ function App() {
         <FleetStats vehicles={vehicles} />
 
         <div className="dashboard-grid">
+          {/* Left column */}
           <MapPanel selectedVehicleId={selectedVehicleId} />
 
-          <GeofenceAlerts />
+          {/* Right column */}
+          <aside className="dashboard-sidebar">
+            <GeofenceAlerts />
 
-          <VehicleList
-            vehicles={vehicles}
-            loading={loading}
-            error={error}
-            selectedVehicleId={selectedVehicleId}
-            onSelectVehicle={setSelectedVehicleId}
-            onVehicleAdded={fetchVehicles}
-          />
+            <VehicleList
+              vehicles={vehicles}
+              loading={loading}
+              error={error}
+              selectedVehicleId={selectedVehicleId}
+              onSelectVehicle={setSelectedVehicleId}
+              onVehicleAdded={fetchVehicles}
+            />
+          </aside>
         </div>
       </div>
     </main>

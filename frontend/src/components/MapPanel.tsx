@@ -6,7 +6,9 @@ import {
   useRef,
   useState,
 } from "react";
+
 import type { MutableRefObject } from "react";
+
 import {
   MapContainer,
   TileLayer,
@@ -14,16 +16,19 @@ import {
   Popup,
   useMap,
 } from "react-leaflet";
+
 import FleetCanvas from "./FleetCanvas";
 import { Layers, Maximize2 } from "lucide-react";
 import L from "leaflet";
+
 import type { Vehicle as AppVehicle } from "../App";
 import { useTelemetry } from "../hooks/useTelemetry";
 
-type Vehicle = Pick<
-  AppVehicle,
-  "vehicleId" | "registrationNumber" | "vehicleType" | "status"
-> & {
+// --------------------------------------------------
+// TYPES
+// --------------------------------------------------
+
+type Vehicle = Omit<AppVehicle, "vehicleId"> & {
   vehicleId: string;
 };
 
@@ -53,6 +58,10 @@ type MapPanelProps = {
   selectedVehicleId: string | null;
 };
 
+// --------------------------------------------------
+// VEHICLE MARKER ICON
+// --------------------------------------------------
+
 const vehicleIcon = new L.DivIcon({
   className: "vehicle-map-marker",
   html: '<div class="vehicle-marker-dot"></div>',
@@ -60,10 +69,10 @@ const vehicleIcon = new L.DivIcon({
   iconAnchor: [10, 10],
 });
 
-/**
- * Visually separates vehicles whose latest coordinates are identical.
- * The original telemetry coordinates are never modified.
- */
+// --------------------------------------------------
+// DISPLAY POSITION
+// --------------------------------------------------
+
 function getDisplayPosition(
   locations: VehicleLocation[],
   vehicleId: string
@@ -101,6 +110,10 @@ function getDisplayPosition(
   ];
 }
 
+// --------------------------------------------------
+// MAP CONTROLLER
+// --------------------------------------------------
+
 function MapController({
   locations,
   selectedVehicleId,
@@ -127,7 +140,9 @@ function MapController({
         selectedVehicleId
       );
 
-      map.flyTo([latitude, longitude], 14, { duration: 0.6 });
+      map.flyTo([latitude, longitude], 14, {
+        duration: 0.6,
+      });
 
       const timer = window.setTimeout(() => {
         markerRefs.current[selectedVehicleId]?.openPopup();
@@ -188,16 +203,29 @@ function MapController({
   return null;
 }
 
+// --------------------------------------------------
+// MAP PANEL
+// --------------------------------------------------
+
 function MapPanel({ selectedVehicleId }: MapPanelProps) {
-  const [baseLocations, setBaseLocations] = useState<VehicleLocation[]>([]);
+  const [baseLocations, setBaseLocations] = useState<
+    VehicleLocation[]
+  >([]);
+
+  const [fleetVehicles, setFleetVehicles] = useState<Vehicle[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [resetView, setResetView] = useState(0);
 
   const telemetryBatch = useTelemetry();
+
   const markerRefs = useRef<Record<string, L.Marker | null>>({});
 
-  // Keep the newest telemetry event for each vehicle in the incoming batch.
+  // --------------------------------------------------
+  // LATEST TELEMETRY BY VEHICLE
+  // --------------------------------------------------
+
   const latestByVehicle = useMemo(() => {
     const latest = new Map<
       string,
@@ -211,36 +239,54 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
     return latest;
   }, [telemetryBatch]);
 
-  // Derive live locations instead of copying telemetry into state from an effect.
+  // --------------------------------------------------
+  // MERGE HISTORICAL AND LIVE TELEMETRY
+  // --------------------------------------------------
+
   const locations = useMemo<VehicleLocation[]>(() => {
-  const locationsByVehicle = new Map<string, VehicleLocation>();
+    const locationsByVehicle = new Map<
+      string,
+      VehicleLocation
+    >();
 
-  // Start with vehicles that have historical telemetry.
-  for (const location of baseLocations) {
-    locationsByVehicle.set(location.vehicle.vehicleId, location);
-  }
+    // Add vehicles with historical telemetry.
+    for (const location of baseLocations) {
+      locationsByVehicle.set(
+        location.vehicle.vehicleId,
+        location
+      );
+    }
 
-  // Apply the latest live telemetry to known vehicles.
-  for (const event of latestByVehicle.values()) {
-    const existing = locationsByVehicle.get(event.vehicleId);
+    // Apply live telemetry.
+    for (const event of latestByVehicle.values()) {
+      const vehicle = fleetVehicles.find(
+        (item) => item.vehicleId === event.vehicleId
+      );
 
-    if (existing) {
+      if (!vehicle) continue;
+
+      const existing = locationsByVehicle.get(event.vehicleId);
+
       locationsByVehicle.set(event.vehicleId, {
-        ...existing,
+        vehicle: existing?.vehicle ?? vehicle,
         telemetry: {
-          ...existing.telemetry,
           latitude: event.latitude,
           longitude: event.longitude,
-          speed: event.speed ?? existing.telemetry.speed,
+          speed: event.speed ?? existing?.telemetry.speed ?? 0,
           recordedAt:
-            event.recordedAt ?? existing.telemetry.recordedAt,
+            event.recordedAt ??
+            existing?.telemetry.recordedAt ??
+            new Date().toISOString(),
         },
       });
     }
-  }
 
-  return Array.from(locationsByVehicle.values());
-}, [baseLocations, latestByVehicle]);
+    return Array.from(locationsByVehicle.values());
+  }, [baseLocations, latestByVehicle, fleetVehicles]);
+
+  // --------------------------------------------------
+  // FETCH FLEET AND HISTORICAL TELEMETRY
+  // --------------------------------------------------
 
   const fetchFleetTelemetry = useCallback(
     async (signal: AbortSignal) => {
@@ -248,7 +294,9 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
         setError("");
 
         const to = new Date();
-        const from = new Date(to.getTime() - 48 * 60 * 60 * 1000);
+        const from = new Date(
+          to.getTime() - 48 * 60 * 60 * 1000
+        );
 
         const query = `from=${encodeURIComponent(
           from.toISOString()
@@ -275,10 +323,21 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
           throw new Error("Invalid vehicles response");
         }
 
-        const results = await Promise.all(
-          vehiclesResult.data.map(async (vehicle) => {
-            if (!vehicle.vehicleId) return null;
+        if (signal.aborted) return;
 
+        // Narrow optional vehicleId to a required string.
+        const registeredVehicles: Vehicle[] =
+          vehiclesResult.data.filter(
+            (vehicle): vehicle is Vehicle =>
+              typeof vehicle.vehicleId === "string" &&
+              vehicle.vehicleId.trim().length > 0
+          );
+
+        setFleetVehicles(registeredVehicles);
+
+        // Fetch historical telemetry for registered vehicles.
+        const results = await Promise.all(
+          registeredVehicles.map(async (vehicle) => {
             try {
               const response = await fetch(
                 `http://localhost:8000/api/telemetry/${encodeURIComponent(
@@ -292,10 +351,12 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
                   `Telemetry request failed for ${vehicle.vehicleId}:`,
                   response.status
                 );
+
                 return null;
               }
 
-              const result: TelemetryResponse = await response.json();
+              const result: TelemetryResponse =
+                await response.json();
 
               if (
                 !result.success ||
@@ -304,6 +365,7 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
                 console.error(
                   `Invalid telemetry response for ${vehicle.vehicleId}`
                 );
+
                 return null;
               }
 
@@ -333,9 +395,14 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
               );
 
               return {
-                vehicle: vehicle as Vehicle,
-                telemetry: latest,
-              };
+                vehicle,
+                telemetry: {
+                  latitude: latest.latitude,
+                  longitude: latest.longitude,
+                  speed: latest.speed ?? 0,
+                  recordedAt: latest.recordedAt,
+                },
+              } satisfies VehicleLocation;
             } catch (err: unknown) {
               if (
                 err instanceof Error &&
@@ -383,12 +450,19 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
     []
   );
 
+  // --------------------------------------------------
+  // POLLING EVERY 5 SECONDS
+  // --------------------------------------------------
+
   useEffect(() => {
     const controller = new AbortController();
     let requestInProgress = false;
 
     const poll = async () => {
-      if (requestInProgress || controller.signal.aborted) {
+      if (
+        requestInProgress ||
+        controller.signal.aborted
+      ) {
         return;
       }
 
@@ -413,15 +487,24 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
     };
   }, [fetchFleetTelemetry]);
 
+  // --------------------------------------------------
+  // RESET MAP
+  // --------------------------------------------------
+
   const resetMap = () => {
     setResetView((value) => value + 1);
   };
+
+  // --------------------------------------------------
+  // RENDER
+  // --------------------------------------------------
 
   return (
     <section className="map-panel">
       <div className="map-header">
         <div>
           <h2>Live Fleet Map</h2>
+
           <p>
             {locations.length} vehicle
             {locations.length === 1 ? "" : "s"} with telemetry
@@ -513,7 +596,9 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
                 Longitude: {telemetry.longitude}
                 <br />
                 Recorded:{" "}
-                {new Date(telemetry.recordedAt).toLocaleString()}
+                {new Date(
+                  telemetry.recordedAt
+                ).toLocaleString()}
               </Popup>
             </Marker>
           ))}

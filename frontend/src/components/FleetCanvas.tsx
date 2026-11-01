@@ -80,7 +80,7 @@ function FleetCanvas({ vehicles }: FleetCanvasProps) {
                 lastFpsUpdate = timestamp;
             }
 
-            
+
 
             context.clearRect(0, 0, width, height);
             context.fillStyle = "#f4f7fb";
@@ -138,14 +138,32 @@ function FleetCanvas({ vehicles }: FleetCanvasProps) {
                     (vehicle.latitude - BOUNDS.minLatitude) /
                     (BOUNDS.maxLatitude - BOUNDS.minLatitude);
 
+                const overlappingVehicles = currentVehicles.filter(
+                    (item) =>
+                        item.latitude === vehicle.latitude &&
+                        item.longitude === vehicle.longitude
+                );
+
+                const overlapIndex = overlappingVehicles.findIndex(
+                    (item) => item.vehicleId === vehicle.vehicleId
+                );
+
+                const angle =
+                    (2 * Math.PI * overlapIndex) /
+                    Math.max(overlappingVehicles.length, 1);
+
+                const radius = overlappingVehicles.length > 1 ? 18 : 0;
+
                 const x =
                     padding +
-                    Math.min(1, Math.max(0, longitudeRatio)) * usableWidth;
+                    Math.min(1, Math.max(0, longitudeRatio)) * usableWidth +
+                    Math.cos(angle) * radius;
 
                 const y =
                     height -
                     padding -
-                    Math.min(1, Math.max(0, latitudeRatio)) * usableHeight;
+                    Math.min(1, Math.max(0, latitudeRatio)) * usableHeight +
+                    Math.sin(angle) * radius;
 
                 // Vehicle marker.
                 context.beginPath();
