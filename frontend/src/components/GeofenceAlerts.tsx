@@ -1,9 +1,13 @@
 
-import { useGeofenceAlerts } from "../hooks/useGeofenceAlerts";
+import type { GeofenceAlert } from "../hooks/useGeofenceAlerts";
 
-export default function GeofenceAlerts() {
-  const alerts = useGeofenceAlerts();
+type GeofenceAlertsProps = {
+  alerts: GeofenceAlert[];
+};
 
+export default function GeofenceAlerts({
+  alerts,
+}: GeofenceAlertsProps) {
   return (
     <section className="geofence-alerts">
       <h2>Geofence Alerts</h2>
@@ -13,7 +17,9 @@ export default function GeofenceAlerts() {
       ) : (
         <ul>
           {alerts.map((alert, index) => (
-            <li key={`${alert.geofenceId}-${alert.vehicleId}-${alert.timestamp}-${index}`}>
+            <li
+              key={`${alert.geofenceId}-${alert.vehicleId}-${alert.timestamp}-${index}`}
+            >
               <strong>
                 {alert.type === "entered" ? "Entered" : "Exited"}:
               </strong>{" "}

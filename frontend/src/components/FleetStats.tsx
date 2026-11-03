@@ -1,5 +1,10 @@
 
-import { Truck, Activity, AlertTriangle, Wrench } from "lucide-react";
+import {
+  Truck,
+  Activity,
+  AlertTriangle,
+  Wrench,
+} from "lucide-react";
 
 type Vehicle = {
   status: "active" | "inactive" | "maintenance";
@@ -7,9 +12,13 @@ type Vehicle = {
 
 type FleetStatsProps = {
   vehicles: Vehicle[];
+  alertCount: number;
 };
 
-function FleetStats({ vehicles }: FleetStatsProps) {
+function FleetStats({
+  vehicles,
+  alertCount,
+}: FleetStatsProps) {
   const totalVehicles = vehicles.length;
 
   const activeVehicles = vehicles.filter(
@@ -35,7 +44,7 @@ function FleetStats({ vehicles }: FleetStatsProps) {
     },
     {
       title: "Alerts",
-      value: 0,
+      value: alertCount,
       icon: AlertTriangle,
       color: "orange",
     },

@@ -8,6 +8,8 @@ import MapPanel from "./components/MapPanel";
 import VehicleList from "./components/VehicleList";
 import GeofenceAlerts from "./components/GeofenceAlerts";
 
+import { useGeofenceAlerts } from "./hooks/useGeofenceAlerts";
+
 import "./App.css";
 
 export type Vehicle = {
@@ -29,6 +31,9 @@ function App() {
   const [error, setError] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] =
     useState<string | null>(null);
+
+  // One shared Socket.IO listener for geofence alerts.
+  const alerts = useGeofenceAlerts();
 
   const fetchVehicles = useCallback(async () => {
     try {
@@ -111,15 +116,16 @@ function App() {
           </div>
         )}
 
-        <FleetStats vehicles={vehicles} />
+        <FleetStats
+          vehicles={vehicles}
+          alertCount={alerts.length}
+        />
 
         <div className="dashboard-grid">
-          {/* Left column */}
           <MapPanel selectedVehicleId={selectedVehicleId} />
 
-          {/* Right column */}
           <aside className="dashboard-sidebar">
-            <GeofenceAlerts />
+            <GeofenceAlerts alerts={alerts} />
 
             <VehicleList
               vehicles={vehicles}
