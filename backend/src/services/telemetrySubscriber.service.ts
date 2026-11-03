@@ -61,13 +61,23 @@ export async function startTelemetrySubscriber(): Promise<void> {
       const io = getSocketServer();
 
       // Check every event for geofence boundary crossings.
-      const alerts = batch.flatMap((event) =>
-        checkGeofences(
+      const alerts = batch.flatMap((event) => {
+        const detectedAlerts = checkGeofences(
           event.vehicleId,
           event.latitude,
           event.longitude
-        )
-      );
+        );
+
+        console.log("[GEOFENCE CHECK]", {
+          vehicleId: event.vehicleId,
+          latitude: event.latitude,
+          longitude: event.longitude,
+          alertsGenerated: detectedAlerts.length,
+          alerts: detectedAlerts,
+        });
+
+        return detectedAlerts;
+      });
 
       // Preserve binary telemetry delivery.
       const binaryPayload = encode(batch);
