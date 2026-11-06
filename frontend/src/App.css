@@ -4,29 +4,29 @@
 
 :root {
   color-scheme: light;
-  --fd-bg: #f3f6fb;
-  --fd-surface: #ffffff;
-  --fd-surface-muted: #f8faff;
-  --fd-border: #e5eaf2;
-  --fd-border-strong: #d6deea;
-  --fd-text: #17243b;
-  --fd-text-muted: #718096;
-  --fd-text-soft: #94a3b8;
-  --fd-primary: #2563eb;
-  --fd-primary-hover: #1d4ed8;
-  --fd-primary-soft: #edf4ff;
-  --fd-success: #15803d;
-  --fd-success-soft: #e8f8ef;
-  --fd-warning: #b7791f;
-  --fd-warning-soft: #fff5df;
-  --fd-danger: #b42318;
-  --fd-danger-soft: #fff0ef;
-  --fd-header: #101c31;
+  --fd-bg: #dce5f1;
+  --fd-surface: #f4f7fc;
+  --fd-surface-muted: #e6edf7;
+  --fd-border: #bac9dc;
+  --fd-border-strong: #98aec9;
+  --fd-text: #14233b;
+  --fd-text-muted: #455a76;
+  --fd-text-soft: #627792;
+  --fd-primary: #1d4ed8;
+  --fd-primary-hover: #1e40af;
+  --fd-primary-soft: #dce8ff;
+  --fd-success: #116b3a;
+  --fd-success-soft: #d6f2e2;
+  --fd-warning: #995d0b;
+  --fd-warning-soft: #ffedcc;
+  --fd-danger: #a61b1b;
+  --fd-danger-soft: #ffe5e5;
+  --fd-header: #0b1730;
   --fd-radius-sm: 9px;
   --fd-radius-md: 14px;
   --fd-radius-lg: 18px;
-  --fd-shadow-card: 0 8px 24px rgb(15 35 70 / 5%);
-  --fd-shadow-hover: 0 12px 30px rgb(15 35 70 / 9%);
+  --fd-shadow-card: 0 8px 24px rgb(20 40 75 / 11%);
+  --fd-shadow-hover: 0 12px 30px rgb(20 40 75 / 17%);
   --fd-transition: 180ms ease;
 }
 
@@ -81,7 +81,7 @@ a:focus-visible {
   min-height: 100vh;
   color: var(--fd-text);
   background:
-    radial-gradient(ellipse at 8% 0%, rgb(219 234 254 / 42%), transparent 34rem),
+    radial-gradient(ellipse at 8% 0%, rgb(110 150 215 / 22%), transparent 34rem),
     var(--fd-bg);
 }
 
@@ -97,7 +97,7 @@ a:focus-visible {
   gap: 20px;
   padding: 16px clamp(20px, 5vw, 76px);
   color: #fff;
-  background: linear-gradient(115deg, #101c31 0%, #172b49 100%);
+  background: linear-gradient(115deg, #0b1730 0%, #18365c 100%);
   border-bottom: 1px solid rgb(255 255 255 / 7%);
   box-shadow: 0 5px 20px rgb(12 26 48 / 12%);
 }
@@ -1044,4 +1044,22 @@ a:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Stronger contrast overrides: keep existing layout and behavior intact. */
+.stat-card, .map-panel, .vehicle-panel, .fleet-canvas-panel {
+  border-color: var(--fd-border);
+}
+.vehicle-item { border-bottom-color: #cbd6e5; }
+.vehicle-item:hover { background: #e4edfa; }
+.vehicle-item-selected { background: #d9e7ff; border-color: #8aafe9; }
+.vehicle-icon { background: #dce8ff; }
+.refresh-button, .map-action, .map-expand {
+  background: #edf3fc;
+  color: #263d5d;
+}
+.fleet-canvas { background: #e8eef7; }
+.add-vehicle-form input, .add-vehicle-form select {
+  background: #fff;
+  border-color: #9db0c8;
 }
