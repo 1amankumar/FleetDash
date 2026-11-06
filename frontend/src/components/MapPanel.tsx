@@ -8,7 +8,7 @@ import {
 } from "react";
 
 import type { MutableRefObject } from "react";
-
+import API_BASE_URL from "../config/api";
 import {
   MapContainer,
   TileLayer,
@@ -303,7 +303,7 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
         )}&to=${encodeURIComponent(to.toISOString())}`;
 
         const vehiclesResponse = await fetch(
-          "http://localhost:8000/api/vehicles",
+          `${API_BASE_URL}/api/vehicles`,
           { signal }
         );
 
@@ -340,7 +340,7 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
           registeredVehicles.map(async (vehicle) => {
             try {
               const response = await fetch(
-                `http://localhost:8000/api/telemetry/${encodeURIComponent(
+                `${API_BASE_URL}/api/telemetry/${encodeURIComponent(
                   vehicle.vehicleId
                 )}?${query}`,
                 { signal }
@@ -389,7 +389,7 @@ function MapPanel({ selectedVehicleId }: MapPanelProps) {
 
               const latest = validPoints.reduce((a, b) =>
                 new Date(b.recordedAt).getTime() >
-                new Date(a.recordedAt).getTime()
+                  new Date(a.recordedAt).getTime()
                   ? b
                   : a
               );

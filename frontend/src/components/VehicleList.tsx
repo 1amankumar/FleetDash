@@ -1,4 +1,4 @@
-
+import API_BASE_URL from "../config/api";
 import { useState } from "react";
 import { MapPin, Truck, Plus, X } from "lucide-react";
 import type { Vehicle } from "../App";
@@ -38,7 +38,7 @@ function VehicleList({
     setSaving(true);
 
     try {
-      const response = await fetch("http://localhost:8000/api/vehicles", {
+const response = await fetch(`${API_BASE_URL}/api/vehicles`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

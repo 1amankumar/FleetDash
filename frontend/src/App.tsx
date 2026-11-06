@@ -1,7 +1,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
-
+import API_BASE_URL from "./config/api";
 import DashboardHeader from "./components/DashboardHeader";
 import FleetStats from "./components/FleetStats";
 import MapPanel from "./components/MapPanel";
@@ -40,7 +40,7 @@ function App() {
       setError("");
 
       const response = await fetch(
-        "http://localhost:8000/api/vehicles"
+        `${API_BASE_URL}/api/vehicles`
       );
 
       if (!response.ok) {
