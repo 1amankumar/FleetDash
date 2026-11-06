@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "test": "tsx --test src/app.test.ts src/services/geofence.service.test.ts src/services/telemetryWriteQueue.service.test.ts"
-  },
+  "dev": "tsx watch src/server.ts",
+  "build": "tsc -p tsconfig.json",
+  "start": "node dist/server.js",
+  "test": "tsx --test src/app.test.ts src/services/geofence.service.test.ts src/services/telemetryWriteQueue.service.test.ts"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
