@@ -296,3 +296,5 @@ GitHub: [1amankumar](https://github.com/1amankumar)
 ---
 
 FleetDash is a portfolio project demonstrating full-stack development, asynchronous processing, real-time communication, and geospatial monitoring.
+
+for deployment i deploy backend in render and for frontend i deploy in vercel
